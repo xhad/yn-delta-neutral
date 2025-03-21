@@ -56,13 +56,13 @@ interface IDeltaNeutralStrategy {
 
     /// @notice Event emitted when depositing to a yield-bearing asset
     event DepositToYieldAsset(address indexed asset, uint256 amount, address indexed user);
-    
+
     /// @notice Event emitted when creating a hedge position
     event HedgePositionCreated(address indexed asset, uint256 amount, bool isShort);
-    
+
     /// @notice Event emitted when deploying stablecoins to yield protocols
     event StableDeployed(address indexed asset, uint256 amount, address indexed protocol);
-    
+
     /// @notice Event emitted when rebalancing the portfolio
     event PortfolioRebalanced(int256 ethExposure, int256 btcExposure, int256 usdExposure);
 
@@ -73,7 +73,7 @@ interface IDeltaNeutralStrategy {
      * @return success Whether the deposit was successful
      */
     function depositToYieldBearingAsset(AssetType assetType, uint256 amount) external returns (bool success);
-    
+
     /**
      * @notice Create a hedging position to offset exposure
      * @param assetType Type of asset to hedge
@@ -82,7 +82,7 @@ interface IDeltaNeutralStrategy {
      * @return success Whether the hedge position was created successfully
      */
     function createHedgePosition(AssetType assetType, uint256 amount, bool isShort) external returns (bool success);
-    
+
     /**
      * @notice Deploy stablecoins to a yield-generating protocol
      * @param protocol Address of the yield protocol
@@ -90,25 +90,25 @@ interface IDeltaNeutralStrategy {
      * @return success Whether the deployment was successful
      */
     function deployStableToYieldProtocol(address protocol, uint256 amount) external returns (bool success);
-    
+
     /**
      * @notice Check if portfolio needs rebalancing
      * @return needsRebalance Whether rebalancing is needed
      */
     function needsRebalancing() external view returns (bool needsRebalance);
-    
+
     /**
      * @notice Rebalance the portfolio to maintain delta neutrality
      * @return success Whether the rebalance was successful
      */
     function rebalance() external returns (bool success);
-    
+
     /**
      * @notice Calculate estimated APR based on current positions
      * @return apr The estimated APR in basis points (1% = 100 basis points)
      */
     function calculateEstimatedAPR() external view returns (uint256 apr);
-    
+
     /**
      * @notice Get the current portfolio state summary
      * @return totalValue Total portfolio value
@@ -116,10 +116,8 @@ interface IDeltaNeutralStrategy {
      * @return btcExposure Net BTC exposure
      * @return usdExposure Net USD exposure
      */
-    function getPortfolioSummary() external view returns (
-        uint256 totalValue,
-        int256 ethExposure,
-        int256 btcExposure,
-        int256 usdExposure
-    );
-} 
+    function getPortfolioSummary()
+        external
+        view
+        returns (uint256 totalValue, int256 ethExposure, int256 btcExposure, int256 usdExposure);
+}

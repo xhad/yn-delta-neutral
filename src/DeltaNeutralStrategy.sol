@@ -35,21 +35,21 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
 
     // Platform addresses
     address public hedgingPlatformAddress;
-    
+
     // Portfolio state
     mapping(uint256 => HedgePosition) public hedgePositions; // positionId => HedgePosition
     mapping(address => uint256[]) public userHedgePositions; // user => positionIds
     uint256 public nextPositionId;
-    
+
     // Platform state
     mapping(address => bool) public approvedYieldProtocols;
-    
+
     // Portfolio parameters
     uint256 public rebalanceThreshold; // Basis points
     uint256 public targetETHAllocation; // Basis points
     uint256 public targetBTCAllocation; // Basis points
     uint256 public targetUSDAllocation; // Basis points
-    
+
     // Portfolio mapping
     mapping(address => mapping(AssetType => YieldPosition[])) private userYieldPositions;
     mapping(address => mapping(address => StablePosition[])) private userStablePositions;
@@ -91,21 +91,21 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
         require(_wbtcAddress != address(0), "Invalid WBTC address");
         require(_hedgingPlatform != address(0), "Invalid hedging platform");
         require(_ethAllocation + _btcAllocation + _usdAllocation == BASIS_POINTS, "Invalid allocations");
-        
+
         ynETHxAddress = _ynETHxAddress;
         ynBTCxAddress = _ynBTCxAddress;
         ynUSDxAddress = _ynUSDxAddress;
         wethAddress = _wethAddress;
         wbtcAddress = _wbtcAddress;
         hedgingPlatformAddress = _hedgingPlatform;
-        
+
         targetETHAllocation = _ethAllocation;
         targetBTCAllocation = _btcAllocation;
         targetUSDAllocation = _usdAllocation;
-        
+
         rebalanceThreshold = REBALANCE_THRESHOLD;
         nextPositionId = 1;
-        
+
         emit StrategyDeployed(msg.sender, ynETHxAddress, ynBTCxAddress, ynUSDxAddress);
         emit HedgingPlatformSet(hedgingPlatformAddress);
         emit AllocationUpdated(targetETHAllocation, targetBTCAllocation, targetUSDAllocation);
@@ -117,12 +117,17 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @param amount Amount to deposit
      * @return success Whether the deposit was successful
      */
-    function depositToYieldBearingAsset(AssetType assetType, uint256 amount) external override nonReentrant returns (bool success) {
+    function depositToYieldBearingAsset(AssetType assetType, uint256 amount)
+        external
+        override
+        nonReentrant
+        returns (bool success)
+    {
         require(amount > 0, "Amount must be greater than zero");
-        
+
         address yieldTokenAddress;
         uint256 depositAmount = amount;
-        
+
         if (assetType == AssetType.ETH) {
             yieldTokenAddress = ynETHxAddress;
             // Transfer WETH from the user
@@ -146,11 +151,11 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
         } else {
             revert("Invalid asset type");
         }
-        
+
         // Deposit into the yield token contract
         uint256 mintedAmount = IYieldToken(yieldTokenAddress).deposit(depositAmount);
         require(mintedAmount > 0, "Deposit failed");
-        
+
         // Create a yield position
         YieldPosition memory yieldPosition = YieldPosition({
             asset: yieldTokenAddress,
@@ -158,12 +163,12 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
             value: _getValueInUSD(yieldTokenAddress, mintedAmount),
             assetType: assetType
         });
-        
+
         // Add to user's portfolio
         userYieldPositions[msg.sender][assetType].push(yieldPosition);
-        
+
         emit DepositToYieldAsset(yieldTokenAddress, amount, msg.sender);
-        
+
         return true;
     }
 
@@ -174,10 +179,15 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @param isShort Whether the position is short (true) or long (false)
      * @return success Whether the hedge position was created successfully
      */
-    function createHedgePosition(AssetType assetType, uint256 amount, bool isShort) external override nonReentrant returns (bool success) {
+    function createHedgePosition(AssetType assetType, uint256 amount, bool isShort)
+        external
+        override
+        nonReentrant
+        returns (bool success)
+    {
         require(amount > 0, "Amount must be greater than zero");
         require(isShort, "Only short positions are supported currently");
-        
+
         address asset;
         if (assetType == AssetType.ETH) {
             asset = wethAddress;
@@ -186,30 +196,20 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
         } else {
             revert("Cannot hedge USD assets");
         }
-        
+
         // Interact with the hedging platform
         IHedgingPlatform hedgingPlatform = IHedgingPlatform(hedgingPlatformAddress);
-        
+
         // Approve asset for hedging platform
         IERC20(asset).approve(hedgingPlatformAddress, amount);
-        
+
         // Open short position
-        (uint256 positionId, uint256 executedAmount) = hedgingPlatform.openShortPosition(
-            asset,
-            amount,
-            MAX_SLIPPAGE
-        );
-        
+        (uint256 positionId, uint256 executedAmount) = hedgingPlatform.openShortPosition(asset, amount, MAX_SLIPPAGE);
+
         // Get position details
-        (
-            ,
-            uint256 size,
-            uint256 collateral,
-            uint256 leverage,
-            uint256 liquidationPrice,
-            int256 fundingRate
-        ) = hedgingPlatform.getPositionInfo(positionId);
-        
+        (, uint256 size, uint256 collateral, uint256 leverage, uint256 liquidationPrice, int256 fundingRate) =
+            hedgingPlatform.getPositionInfo(positionId);
+
         // Create hedge position
         HedgePosition memory hedgePosition = HedgePosition({
             asset: asset,
@@ -218,14 +218,14 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
             isShort: isShort,
             fundingRate: fundingRate
         });
-        
+
         // Store position
         hedgePositions[positionId] = hedgePosition;
         userHedgePositions[msg.sender].push(positionId);
         nextPositionId++;
-        
+
         emit HedgePositionCreated(asset, executedAmount, isShort);
-        
+
         return true;
     }
 
@@ -235,23 +235,28 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @param amount Amount to deploy
      * @return success Whether the deployment was successful
      */
-    function deployStableToYieldProtocol(address protocol, uint256 amount) external override nonReentrant returns (bool success) {
+    function deployStableToYieldProtocol(address protocol, uint256 amount)
+        external
+        override
+        nonReentrant
+        returns (bool success)
+    {
         require(approvedYieldProtocols[protocol], "Protocol not approved");
         require(amount > 0, "Amount must be greater than zero");
-        
+
         // Get the ynUSDx token
         IYieldToken ynUSDx = IYieldToken(ynUSDxAddress);
-        
+
         // Transfer ynUSDx from user
         IERC20(ynUSDxAddress).safeTransferFrom(msg.sender, address(this), amount);
-        
+
         // Approve the protocol to spend ynUSDx
         IERC20(ynUSDxAddress).approve(protocol, amount);
-        
+
         // Deposit into the yield protocol
         IYieldProtocol yieldProtocol = IYieldProtocol(protocol);
         uint256 sharesMinted = yieldProtocol.deposit(ynUSDxAddress, amount);
-        
+
         // Create stable position
         StablePosition memory stablePosition = StablePosition({
             asset: ynUSDxAddress,
@@ -259,12 +264,12 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
             value: _getValueInUSD(ynUSDxAddress, amount),
             yieldProtocol: protocol
         });
-        
+
         // Add to user's portfolio
         userStablePositions[msg.sender][protocol].push(stablePosition);
-        
+
         emit StableDeployed(ynUSDxAddress, amount, protocol);
-        
+
         return true;
     }
 
@@ -273,25 +278,20 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @return needsRebalance Whether rebalancing is needed
      */
     function needsRebalancing() external view override returns (bool needsRebalance) {
-        (
-            uint256 totalValue,
-            int256 ethExposure,
-            int256 btcExposure,
-            int256 usdExposure
-        ) = getPortfolioSummary();
-        
+        (uint256 totalValue, int256 ethExposure, int256 btcExposure, int256 usdExposure) = getPortfolioSummary();
+
         if (totalValue == 0) return false;
-        
+
         // Calculate current allocations
         uint256 ethAllocation = uint256(ethExposure > int256(0) ? ethExposure : int256(0)) * BASIS_POINTS / totalValue;
         uint256 btcAllocation = uint256(btcExposure > int256(0) ? btcExposure : int256(0)) * BASIS_POINTS / totalValue;
         uint256 usdAllocation = uint256(usdExposure) * BASIS_POINTS / totalValue;
-        
+
         // Check if any allocation deviates from target by more than the threshold
         bool ethDeviation = _absoluteDifference(ethAllocation, targetETHAllocation) > rebalanceThreshold;
         bool btcDeviation = _absoluteDifference(btcAllocation, targetBTCAllocation) > rebalanceThreshold;
         bool usdDeviation = _absoluteDifference(usdAllocation, targetUSDAllocation) > rebalanceThreshold;
-        
+
         return ethDeviation || btcDeviation || usdDeviation;
     }
 
@@ -300,61 +300,51 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @return success Whether the rebalance was successful
      */
     function rebalance() external override nonReentrant returns (bool success) {
-        (
-            uint256 totalValue,
-            int256 ethExposure,
-            int256 btcExposure,
-            int256 usdExposure
-        ) = getPortfolioSummary();
-        
+        (uint256 totalValue, int256 ethExposure, int256 btcExposure, int256 usdExposure) = getPortfolioSummary();
+
         if (totalValue == 0) return true; // Nothing to rebalance
-        
+
         // Calculate target exposures
         uint256 targetETHValue = totalValue * targetETHAllocation / BASIS_POINTS;
         uint256 targetBTCValue = totalValue * targetBTCAllocation / BASIS_POINTS;
-        
+
         // Calculate required hedge adjustments
         int256 ethAdjustment = int256(targetETHValue) - ethExposure;
         int256 btcAdjustment = int256(targetBTCValue) - btcExposure;
-        
+
         // Adjust ETH hedge positions
         if (ethAdjustment < 0) {
             // Need to increase short position
             uint256 amountToShort = uint256(-ethAdjustment);
             // Convert USD value to ETH amount
             uint256 ethAmount = _convertUSDToAssetAmount(wethAddress, amountToShort);
-            
+
             // Create hedge position
             _createHedgePosition(AssetType.ETH, ethAmount, true);
         } else if (ethAdjustment > 0) {
             // Need to reduce short position
             _reduceHedgePositions(AssetType.ETH, uint256(ethAdjustment));
         }
-        
+
         // Adjust BTC hedge positions
         if (btcAdjustment < 0) {
             // Need to increase short position
             uint256 amountToShort = uint256(-btcAdjustment);
             // Convert USD value to BTC amount
             uint256 btcAmount = _convertUSDToAssetAmount(wbtcAddress, amountToShort);
-            
+
             // Create hedge position
             _createHedgePosition(AssetType.BTC, btcAmount, true);
         } else if (btcAdjustment > 0) {
             // Need to reduce short position
             _reduceHedgePositions(AssetType.BTC, uint256(btcAdjustment));
         }
-        
+
         // Get updated portfolio state
-        (
-            ,
-            int256 newEthExposure,
-            int256 newBtcExposure,
-            int256 newUsdExposure
-        ) = getPortfolioSummary();
-        
+        (, int256 newEthExposure, int256 newBtcExposure, int256 newUsdExposure) = getPortfolioSummary();
+
         emit PortfolioRebalanced(newEthExposure, newBtcExposure, newUsdExposure);
-        
+
         return true;
     }
 
@@ -363,30 +353,25 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @return apr The estimated APR in basis points (1% = 100 basis points)
      */
     function calculateEstimatedAPR() external view override returns (uint256 apr) {
-        (
-            uint256 totalValue,
-            ,
-            ,
-            
-        ) = getPortfolioSummary();
-        
+        (uint256 totalValue,,,) = getPortfolioSummary();
+
         if (totalValue == 0) return 0;
-        
+
         uint256 totalYield = 0;
-        
+
         // Calculate yield from all yield tokens
         totalYield += _calculateYieldFromToken(ynETHxAddress);
         totalYield += _calculateYieldFromToken(ynBTCxAddress);
         totalYield += _calculateYieldFromToken(ynUSDxAddress);
-        
+
         // Calculate yield from stable positions in protocols
         for (uint256 i = 0; i < userHedgePositions[msg.sender].length; i++) {
             uint256 positionId = userHedgePositions[msg.sender][i];
             HedgePosition storage position = hedgePositions[positionId];
-            
+
             // Hedging costs (typically negative for shorts)
             int256 fundingCost = position.fundingRate * int256(position.value) / int256(1e6);
-            
+
             // Subtract hedging costs from total yield
             if (fundingCost < 0) {
                 totalYield = totalYield > uint256(-fundingCost) ? totalYield - uint256(-fundingCost) : 0;
@@ -394,7 +379,7 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
                 totalYield += uint256(fundingCost);
             }
         }
-        
+
         // Return APR in basis points
         return totalYield * BASIS_POINTS / totalValue;
     }
@@ -406,33 +391,33 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @return btcExposure Net BTC exposure
      * @return usdExposure Net USD exposure
      */
-    function getPortfolioSummary() public view override returns (
-        uint256 totalValue,
-        int256 ethExposure,
-        int256 btcExposure,
-        int256 usdExposure
-    ) {
+    function getPortfolioSummary()
+        public
+        view
+        override
+        returns (uint256 totalValue, int256 ethExposure, int256 btcExposure, int256 usdExposure)
+    {
         // Calculate ETH exposure
         for (uint256 i = 0; i < userYieldPositions[msg.sender][AssetType.ETH].length; i++) {
             YieldPosition storage position = userYieldPositions[msg.sender][AssetType.ETH][i];
             ethExposure += int256(position.value);
             totalValue += position.value;
         }
-        
+
         // Calculate BTC exposure
         for (uint256 i = 0; i < userYieldPositions[msg.sender][AssetType.BTC].length; i++) {
             YieldPosition storage position = userYieldPositions[msg.sender][AssetType.BTC][i];
             btcExposure += int256(position.value);
             totalValue += position.value;
         }
-        
+
         // Calculate USD exposure
         for (uint256 i = 0; i < userYieldPositions[msg.sender][AssetType.USD].length; i++) {
             YieldPosition storage position = userYieldPositions[msg.sender][AssetType.USD][i];
             usdExposure += int256(position.value);
             totalValue += position.value;
         }
-        
+
         // Add stablecoin positions from protocols
         address[] memory protocols = _getApprovedProtocols();
         for (uint256 i = 0; i < protocols.length; i++) {
@@ -443,12 +428,12 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
                 totalValue += position.value;
             }
         }
-        
+
         // Subtract hedge positions
         for (uint256 i = 0; i < userHedgePositions[msg.sender].length; i++) {
             uint256 positionId = userHedgePositions[msg.sender][i];
             HedgePosition storage position = hedgePositions[positionId];
-            
+
             if (position.asset == wethAddress) {
                 ethExposure -= int256(position.value);
             } else if (position.asset == wbtcAddress) {
@@ -465,10 +450,10 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
     function addYieldProtocol(address protocol) external onlyOwner returns (bool success) {
         require(protocol != address(0), "Invalid protocol address");
         require(!approvedYieldProtocols[protocol], "Protocol already approved");
-        
+
         approvedYieldProtocols[protocol] = true;
         emit YieldProtocolAdded(protocol);
-        
+
         return true;
     }
 
@@ -479,10 +464,10 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      */
     function removeYieldProtocol(address protocol) external onlyOwner returns (bool success) {
         require(approvedYieldProtocols[protocol], "Protocol not approved");
-        
+
         approvedYieldProtocols[protocol] = false;
         emit YieldProtocolRemoved(protocol);
-        
+
         return true;
     }
 
@@ -493,10 +478,10 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      */
     function setHedgingPlatform(address platform) external onlyOwner returns (bool success) {
         require(platform != address(0), "Invalid platform address");
-        
+
         hedgingPlatformAddress = platform;
         emit HedgingPlatformSet(platform);
-        
+
         return true;
     }
 
@@ -507,19 +492,19 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @param _usdAllocation Target USD allocation in basis points
      * @return success Whether the allocations were updated successfully
      */
-    function updateAllocations(
-        uint256 _ethAllocation,
-        uint256 _btcAllocation,
-        uint256 _usdAllocation
-    ) external onlyOwner returns (bool success) {
+    function updateAllocations(uint256 _ethAllocation, uint256 _btcAllocation, uint256 _usdAllocation)
+        external
+        onlyOwner
+        returns (bool success)
+    {
         require(_ethAllocation + _btcAllocation + _usdAllocation == BASIS_POINTS, "Invalid allocations");
-        
+
         targetETHAllocation = _ethAllocation;
         targetBTCAllocation = _btcAllocation;
         targetUSDAllocation = _usdAllocation;
-        
+
         emit AllocationUpdated(_ethAllocation, _btcAllocation, _usdAllocation);
-        
+
         return true;
     }
 
@@ -530,7 +515,10 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @param isShort Whether the position is short
      * @return positionId ID of the created position
      */
-    function _createHedgePosition(AssetType assetType, uint256 amount, bool isShort) internal returns (uint256 positionId) {
+    function _createHedgePosition(AssetType assetType, uint256 amount, bool isShort)
+        internal
+        returns (uint256 positionId)
+    {
         address asset;
         if (assetType == AssetType.ETH) {
             asset = wethAddress;
@@ -539,30 +527,19 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
         } else {
             revert("Cannot hedge USD assets");
         }
-        
+
         // Interact with the hedging platform
         IHedgingPlatform hedgingPlatform = IHedgingPlatform(hedgingPlatformAddress);
-        
+
         // Approve asset for hedging platform
         IERC20(asset).approve(hedgingPlatformAddress, amount);
-        
+
         // Open short position
-        (uint256 newPositionId, uint256 executedAmount) = hedgingPlatform.openShortPosition(
-            asset,
-            amount,
-            MAX_SLIPPAGE
-        );
-        
+        (uint256 newPositionId, uint256 executedAmount) = hedgingPlatform.openShortPosition(asset, amount, MAX_SLIPPAGE);
+
         // Get position details
-        (
-            ,
-            ,
-            ,
-            ,
-            ,
-            int256 fundingRate
-        ) = hedgingPlatform.getPositionInfo(newPositionId);
-        
+        (,,,,, int256 fundingRate) = hedgingPlatform.getPositionInfo(newPositionId);
+
         // Create hedge position
         HedgePosition memory hedgePosition = HedgePosition({
             asset: asset,
@@ -571,14 +548,14 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
             isShort: isShort,
             fundingRate: fundingRate
         });
-        
+
         // Store position
         hedgePositions[newPositionId] = hedgePosition;
         userHedgePositions[msg.sender].push(newPositionId);
         nextPositionId++;
-        
+
         emit HedgePositionCreated(asset, executedAmount, isShort);
-        
+
         return newPositionId;
     }
 
@@ -589,35 +566,31 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      */
     function _reduceHedgePositions(AssetType assetType, uint256 valueToReduce) internal {
         address targetAsset = assetType == AssetType.ETH ? wethAddress : wbtcAddress;
-        
+
         for (uint256 i = 0; i < userHedgePositions[msg.sender].length && valueToReduce > 0; i++) {
             uint256 positionId = userHedgePositions[msg.sender][i];
             HedgePosition storage position = hedgePositions[positionId];
-            
+
             // Skip if not the target asset or not a short position
             if (position.asset != targetAsset || !position.isShort) continue;
-            
+
             uint256 closeValue = Math.min(position.value, valueToReduce);
             uint256 closeAmount = closeValue * position.amount / position.value;
-            
+
             if (closeAmount > 0) {
                 // Interact with hedging platform to close part of the position
                 IHedgingPlatform hedgingPlatform = IHedgingPlatform(hedgingPlatformAddress);
-                
+
                 // Close position
-                (uint256 closedAmount, ) = hedgingPlatform.closeShortPosition(
-                    positionId,
-                    closeAmount,
-                    MAX_SLIPPAGE
-                );
-                
+                (uint256 closedAmount,) = hedgingPlatform.closeShortPosition(positionId, closeAmount, MAX_SLIPPAGE);
+
                 // Update position
                 position.amount -= closedAmount;
                 position.value = _getValueInUSD(position.asset, position.amount);
-                
+
                 // Reduce the remaining value to close
                 valueToReduce -= closeValue;
-                
+
                 // If position fully closed, remove it
                 if (position.amount == 0) {
                     // Remove from userHedgePositions
@@ -625,10 +598,10 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
                         userHedgePositions[msg.sender][j] = userHedgePositions[msg.sender][j + 1];
                     }
                     userHedgePositions[msg.sender].pop();
-                    
+
                     // Delete position
                     delete hedgePositions[positionId];
-                    
+
                     // Decrement i because we removed an element
                     i--;
                 }
@@ -644,7 +617,7 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
     function _calculateYieldFromToken(address tokenAddress) internal view returns (uint256 yield) {
         IYieldToken yieldToken = IYieldToken(tokenAddress);
         uint256 apr = yieldToken.currentAPR();
-        
+
         AssetType assetType;
         if (tokenAddress == ynETHxAddress) {
             assetType = AssetType.ETH;
@@ -655,16 +628,16 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
         } else {
             return 0;
         }
-        
+
         uint256 totalValue = 0;
-        
+
         // Calculate total value in this token
         for (uint256 i = 0; i < userYieldPositions[msg.sender][assetType].length; i++) {
             if (userYieldPositions[msg.sender][assetType][i].asset == tokenAddress) {
                 totalValue += userYieldPositions[msg.sender][assetType][i].value;
             }
         }
-        
+
         // Calculate annual yield
         return totalValue * apr / BASIS_POINTS;
     }
@@ -677,7 +650,7 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      */
     function _getValueInUSD(address tokenAddress, uint256 amount) internal view returns (uint256 usdValue) {
         // In a real implementation, this would use an oracle
-        
+
         if (tokenAddress == ynETHxAddress || tokenAddress == wethAddress) {
             // Assuming 1 ETH = $3,000 USD
             return (amount * 3000e18) / 1e18;
@@ -688,7 +661,7 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
             // Stablecoins are 1:1 with USD
             return amount;
         }
-        
+
         return 0;
     }
 
@@ -698,7 +671,11 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      * @param usdValue USD value to convert
      * @return assetAmount Amount of the asset
      */
-    function _convertUSDToAssetAmount(address assetAddress, uint256 usdValue) internal view returns (uint256 assetAmount) {
+    function _convertUSDToAssetAmount(address assetAddress, uint256 usdValue)
+        internal
+        view
+        returns (uint256 assetAmount)
+    {
         if (assetAddress == wethAddress) {
             // Assuming 1 ETH = $3,000 USD
             return (usdValue * 1e18) / 3000e18;
@@ -709,7 +686,7 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
             // Stablecoins are 1:1 with USD
             return usdValue;
         }
-        
+
         return 0;
     }
 
@@ -729,18 +706,19 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
      */
     function _getApprovedProtocols() internal view returns (address[] memory protocols) {
         uint256 count = 0;
-        
+
         // First, count the number of approved protocols
-        for (uint256 i = 0; i < 100; i++) { // Arbitrary limit
+        for (uint256 i = 0; i < 100; i++) {
+            // Arbitrary limit
             address potentialProtocol = address(uint160(i));
             if (approvedYieldProtocols[potentialProtocol]) {
                 count++;
             }
         }
-        
+
         // Allocate the array
         protocols = new address[](count);
-        
+
         // Fill the array
         uint256 index = 0;
         for (uint256 i = 0; i < 100 && index < count; i++) {
@@ -751,4 +729,4 @@ contract DeltaNeutralStrategy is IDeltaNeutralStrategy, Ownable, ReentrancyGuard
             }
         }
     }
-} 
+}
